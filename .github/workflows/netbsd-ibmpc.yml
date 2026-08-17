@@ -1,0 +1,49 @@
+name: netbsd-ibmpc
+run-name: netbsd-ibmpc
+on:
+  workflow_dispatch:
+    inputs:
+      REL:
+        type: string
+        required: true
+      EXTRA_BUILD_FLAGS:
+        type: string
+        required: false
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - run: df -h
+      - uses: actions/checkout@v7
+      - uses: vmactions/netbsd-vm@v1
+        with:
+          run: |
+            export REL="${{ inputs.REL }}"
+            SAVED_PATH="$(pwd)"
+
+            df -h
+            echo nproc: $(getconf NPROCESSORS_ONLN)
+
+            ./netbsd-ibm-pc/populate-src.sh
+
+            # Build the build host toolschains with default params
+            eval /usr/src/build.sh -N 0 -U -u -j$(getconf NPROCESSORS_ONLN) \
+              -m i386 -a i386 -O ~/obj ${{ inputs.EXTRA_BUILD_FLAGS }} tools
+
+            # But build the target binaries with -Os, ignoring warnings
+            cp -pf ./netbsd-ibm-pc/mk.conf /
+            cp -pf ./netbsd-ibm-pc/I440 /usr/src/sys/arch/i386/conf/GENERIC
+            cp -pf ./netbsd-ibm-pc/INSTALL /usr/src/sys/arch/i386/conf/
+            eval /usr/src/build.sh -N 0 -U -u -j$(getconf NPROCESSORS_ONLN) \
+              -m i386 -a i386 -O ~/obj ${{ inputs.EXTRA_BUILD_FLAGS }} release iso-image
+
+            mv ~/obj/releasedir "$SAVED_PATH/"
+
+            df -h
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netbsd-ibmpc-${{ inputs.REL }}
+          path: |
+            releasedir
+          retention-days: 14
